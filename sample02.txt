@@ -1,0 +1,124 @@
+const PLAYER_NONE = Symbol(); // 未使用を表す定数
+ 
+    // 一定時間待つ関数
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+ 
+/**
+ * ゲーム状況データの管理
+ * @param drawCtrl
+ */
+const getGameDataManager = ( drawCtrl )=>{
+ 
+    const pieceNum = option.BORD_PIECE_NUM;
+ 
+        // ゲーム状況データ作成 横、縦の2次元配列
+    const data = Array.from( {length:8},
+                             e => new Array(pieceNum).fill(PLAYER_NONE) );
+ 
+        // 指定位置の状況を取得
+    const status = ( col , row ) => data[row][col];
+        // 指定位置の状況を更新
+    const statusSet = ( col , row ,val ) =>  data[row][col] = val;
+ 
+        // 指定位置(col , row)から指定方向(stepX , stepY)でコマがとれるかチェック
+    const checkPiece = ( col , row ,stepX , stepY , nowPlayer ) =>{
+        let x = col + stepX,y = row + stepY;
+        let firstPos = null;
+        let count = 0; // 取得可能なコマ数
+ 
+        while( true ){
+            if( x < 0 || x >= pieceNum || y < 0 || y >= pieceNum ) return false;
+            const stat = status(x,y);
+            if( stat === PLAYER_NONE ) return false;
+ 
+            if( stat === nowPlayer )
+                return firstPos === null ? false
+                    : [firstPos,   // 始点、
+                           [x-=stepX,y-=stepY], // 終点
+                           [stepX,stepY],   //  方向
+                           count];
+ 
+            if( firstPos === null ) firstPos = [x,y];
+            count ++;
+ 
+            x += stepX;y += stepY;
+ 
+        }
+    };
+        // 指定位置にコマを置けるかチェック
+    const pointCheck = ( col , row , player , checkOnly = true) => {
+ 
+        const piece = status( col , row );
+        if( piece !== PLAYER_NONE ) return false;
+        const nextPlayer = player === PLAYER_YOU ? PLAYER_COMP : PLAYER_YOU;
+        const result = [];
+ 
+        return ( [[-1,-1],[0 , -1],[1 , -1],[1 , 0],[1 , 1],[0 , 1],[-1 , 1],[-1 , 0]]
+                .some( e => {
+                    const range = checkPiece( col , row , e[0] , e[1] , player , nextPlayer );
+                    if( range !== false ){
+                        if( checkOnly ) return true;
+                        result.push(range);
+                    }
+                })
+        ) ? true : ( result.length === 0 ? false : result );
+ 
+    };
+ 
+    return Object.freeze({
+            // ゲーム状況データのリセット
+        reset:()=>{data.forEach(e=>e.fill(PLAYER_NONE));drawCtrl.initBord()},
+            // コマの配置と描画
+        pieceSet:function( col , row , val ){
+            statusSet( col , row, val);
+            if( drawCtrl !== null ) drawCtrl.drawPiece( col , row , val );
+            return this;
+        },
+            // コマを置ける位置を検索
+        getFreePlaces: ( player ) => {
+            const result=[];
+            for( let row = 0 ; row < pieceNum ; row ++ ){
+                for( let col = 0 ; col < pieceNum ; col ++ ){
+                    if( pointCheck( col , row , player ) !== false ) result.push( [col,row] );
+                }
+            }
+            return result.length === 0 ? false : result;
+        },
+            // 現在の状況
+        result: ()=>{
+            let c1 = 0,c2 = 0,c3 = 0;
+            for( let row = 0 ; row < pieceNum ; row ++ ){
+                for( let col = 0 ; col < pieceNum ; col ++ ){
+                    switch( status( col , row ) ){
+                        case PLAYER_NONE:c1++;break;
+                        case PLAYER_YOU:c2++;break;
+                        case PLAYER_COMP:c3++;break;
+                    }
+                }
+            }
+            return [c1,c2,c3];
+        },
+            // 指定した位置にコマを置き、裏返し可能なものを処理
+        clickSets: async function( col , row , player , callBack ){
+ 
+            const range = pointCheck( col , row , player , false );
+            this.pieceSet( col , row , player);
+            if( range === false ) return;
+ 
+            for( let i = 0 ; i < range.length ; i ++ ){
+                let [colp , rowp] = range[i][0];
+                const [stX , stY] = range[i][2];
+                const [endColp , endRowp] = 
+                    [range[i][1][0] + stX , range[i][1][1] + stY];
+ 
+                while( colp !== endColp || rowp !== endRowp ){
+                    await wait(500);
+                    this.pieceSet( colp , rowp , player);
+                    callBack(false,this.result());
+                    colp += stX;rowp += stY;
+                }
+            }
+            callBack(true,this.result());
+        }
+    });
+};
